@@ -34,3 +34,10 @@ type ReadyResponse struct {
 	Status string `json:"status"`
 	Ready  bool   `json:"ready"`
 }
+
+// EventResponse is returned when listing events
+type EventResponse struct {
+	EventID string          `json:"event_id"`
+	Payload json.RawMessage `json:"payload"`
+	Status  EventStatus     `json:"status"`
+}

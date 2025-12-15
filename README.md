@@ -42,7 +42,46 @@ Example with custom configuration:
 PORT=3000 ENV=staging PROCESSING_DELAY_MS=500 go run ./...
 ```
 
+## Frontend Dashboard
+
+A minimal web dashboard is available at the root URL when you start the service:
+
+```
+http://127.0.0.1:8080/
+```
+
+The dashboard provides:
+- Real-time service health and worker status monitoring
+- Interactive form to submit new events
+- Live event list showing all events and their status (accepted/processed)
+- Auto-refresh every 2 seconds to display updates
+
+Simply open the URL in your browser to visualize and interact with the event service.
+
 ## API Endpoints
+
+### GET /
+
+Serves the frontend dashboard HTML page.
+
+### GET /events
+
+Lists all events currently stored in the service.
+
+**Response:**
+```json
+[
+  {
+    "event_id": "evt_123",
+    "payload": {
+      "any": "data"
+    },
+    "status": "processed"
+  }
+]
+```
+
+Always returns `200 OK` with an array of events.
 
 ### POST /events
 

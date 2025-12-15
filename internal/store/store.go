@@ -56,3 +56,14 @@ func (s *Store) GetStatus(eventID string) (model.EventStatus, bool) {
 	}
 	return "", false
 }
+
+// List returns all events in the store
+func (s *Store) List() []*model.Event {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	events := make([]*model.Event, 0, len(s.events))
+	for _, event := range s.events {
+		events = append(events, event)
+	}
+	return events
+}
