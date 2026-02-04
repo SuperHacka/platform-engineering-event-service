@@ -7,6 +7,12 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: 'Confirm deployment (set to "yes" to apply changes)'
+        required: true
+        default: 'no'
 
 env:
   PROJECT_ID: axium-assessment
@@ -15,6 +21,7 @@ env:
   SERVICE_NAME: event-service
 
 jobs:
+# ... (test and build-and-push jobs remain the same)
   test:
     name: Test & Verify
     runs-on: ubuntu-latest
@@ -56,7 +63,7 @@ jobs:
   build-and-push:
     name: Build & Push
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -84,9 +91,9 @@ jobs:
           docker push "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest"
 
   deploy:
-    name: Infrastructure & Deploy
+    name: Infrastructure & Plan
     needs: build-and-push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       service_url: ${{ steps.deploy.outputs.service_url }}
@@ -125,10 +132,9 @@ jobs:
         working-directory: ./terraform
         continue-on-error: true
         run: |
-          # Check if the Artifact Registry repository exists
+          # 1. Artifact Registry Repository
           if gcloud artifacts repositories describe ${{ env.REPOSITORY }} --location=${{ env.REGION }} --project=${{ env.PROJECT_ID }} > /dev/null 2>&1; then
             echo "Repository ${{ env.REPOSITORY }} exists in GCP."
-            # Check if it's already in Terraform state
             if ! terraform state show google_artifact_registry_repository.event_service > /dev/null 2>&1; then
               echo "Importing existing repository into Terraform state..."
               terraform import \
@@ -138,32 +144,59 @@ jobs:
                 -var="image_tag=${{ github.sha }}" \
                 google_artifact_registry_repository.event_service \
                 projects/${{ env.PROJECT_ID }}/locations/${{ env.REGION }}/repositories/${{ env.REPOSITORY }}
-            else
-              echo "Repository is already in state."
             fi
           fi
 
-      - name: Terraform Apply
+          # 2. Cloud Run Service
+          if gcloud run services describe ${{ env.SERVICE_NAME }} --platform managed --region ${{ env.REGION }} --project ${{ env.PROJECT_ID }} > /dev/null 2>&1; then
+            echo "Cloud Run service ${{ env.SERVICE_NAME }} exists in GCP."
+            if ! terraform state show google_cloud_run_service.event_service > /dev/null 2>&1; then
+              echo "Importing existing Cloud Run service into Terraform state..."
+              terraform import \
+                -var="project_id=${{ env.PROJECT_ID }}" \
+                -var="region=${{ env.REGION }}" \
+                -var="artifact_registry_repository=${{ env.REPOSITORY }}" \
+                -var="image_tag=${{ github.sha }}" \
+                google_cloud_run_service.event_service \
+                locations/${{ env.REGION }}/namespaces/${{ env.PROJECT_ID }}/services/${{ env.SERVICE_NAME }}
+            fi
+          fi
+
+      - name: Terraform Plan/Apply
         id: deploy
         working-directory: ./terraform
         run: |
-          terraform apply -auto-approve \
-            -var="project_id=${{ env.PROJECT_ID }}" \
-            -var="region=${{ env.REGION }}" \
-            -var="artifact_registry_repository=${{ env.REPOSITORY }}" \
-            -var="image_tag=${{ github.sha }}"
-          
-          echo "service_url=$(terraform output -raw service_url)" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "${{ github.event.inputs.confirm_deploy }}" == "yes" ]; then
+            echo "Confirmed manual deployment. Running apply..."
+            terraform apply -auto-approve \
+              -var="project_id=${{ env.PROJECT_ID }}" \
+              -var="region=${{ env.REGION }}" \
+              -var="artifact_registry_repository=${{ env.REPOSITORY }}" \
+              -var="image_tag=${{ github.sha }}"
+            echo "service_url=$(terraform output -raw service_url)" >> $GITHUB_OUTPUT
+          else
+            echo "Automatic run or no confirmation. Running plan only..."
+            terraform plan \
+              -var="project_id=${{ env.PROJECT_ID }}" \
+              -var="region=${{ env.REGION }}" \
+              -var="artifact_registry_repository=${{ env.REPOSITORY }}" \
+              -var="image_tag=${{ github.sha }}"
+            echo "service_url=skip" >> $GITHUB_OUTPUT
+          fi
 
   verify:
     name: Post-Deployment Verification
     needs: deploy
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirm_deploy == 'yes'
     runs-on: ubuntu-latest
     steps:
       - name: Health Check
         run: |
           SERVICE_URL="${{ needs.deploy.outputs.service_url }}"
+          if [ "$SERVICE_URL" == "skip" ]; then
+            echo "Deployment was skipped. No verification needed."
+            exit 0
+          fi
           echo "Verifying service at $SERVICE_URL"
           for i in {1..5}; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/health")
