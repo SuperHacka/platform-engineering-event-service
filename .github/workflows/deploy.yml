@@ -121,6 +121,28 @@ jobs:
         working-directory: ./terraform
         run: terraform init
 
+      - name: Import Existing Resources (Gate)
+        working-directory: ./terraform
+        continue-on-error: true
+        run: |
+          # Check if the Artifact Registry repository exists
+          if gcloud artifacts repositories describe ${{ env.REPOSITORY }} --location=${{ env.REGION }} --project=${{ env.PROJECT_ID }} > /dev/null 2>&1; then
+            echo "Repository ${{ env.REPOSITORY }} exists in GCP."
+            # Check if it's already in Terraform state
+            if ! terraform state show google_artifact_registry_repository.event_service > /dev/null 2>&1; then
+              echo "Importing existing repository into Terraform state..."
+              terraform import \
+                -var="project_id=${{ env.PROJECT_ID }}" \
+                -var="region=${{ env.REGION }}" \
+                -var="artifact_registry_repository=${{ env.REPOSITORY }}" \
+                -var="image_tag=${{ github.sha }}" \
+                google_artifact_registry_repository.event_service \
+                projects/${{ env.PROJECT_ID }}/locations/${{ env.REGION }}/repositories/${{ env.REPOSITORY }}
+            else
+              echo "Repository is already in state."
+            fi
+          fi
+
       - name: Terraform Apply
         id: deploy
         working-directory: ./terraform
