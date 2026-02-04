@@ -99,6 +99,16 @@ jobs:
         with:
           terraform_version: "1.7.0"
 
+      - name: Ensure Terraform State Bucket Exists
+        run: |
+          BUCKET_NAME="axium-assessment-terraform-state"
+          if ! gsutil ls -b gs://$BUCKET_NAME > /dev/null 2>&1; then
+            echo "Creating bucket $BUCKET_NAME..."
+            gsutil mb -p ${{ env.PROJECT_ID }} -l ${{ env.REGION }} gs://$BUCKET_NAME
+          else
+            echo "Bucket $BUCKET_NAME already exists."
+          fi
+
       - name: Terraform Init
         working-directory: ./terraform
         run: terraform init
