@@ -8,11 +8,10 @@ terraform {
     }
   }
 
-  # Optional: Configure backend for remote state storage
-  # backend "gcs" {
-  #   bucket = "axium-assessment-terraform-state"
-  #   prefix = "event-service"
-  # }
+  backend "gcs" {
+    bucket = "axium-assessment-terraform-state"
+    prefix = "event-service"
+  }
 }
 
 provider "google" {

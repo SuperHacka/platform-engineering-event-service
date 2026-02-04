@@ -16,7 +16,7 @@ env:
 
 jobs:
   test:
-    name: Test
+    name: Test & Verify
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -28,8 +28,25 @@ jobs:
           go-version: '1.21'
           cache: true
 
-      - name: Run Tests
+      - name: Run Go Tests
         run: go test -v ./...
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Terraform Format Check
+        working-directory: ./terraform
+        run: terraform fmt -check
+
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        working-directory: ./terraform
+        run: terraform validate
 
   build-and-push:
     name: Build & Push
@@ -66,6 +83,8 @@ jobs:
     needs: build-and-push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    outputs:
+      service_url: ${{ steps.deploy.outputs.service_url }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -85,6 +104,7 @@ jobs:
         run: terraform init
 
       - name: Terraform Apply
+        id: deploy
         working-directory: ./terraform
         run: |
           terraform apply -auto-approve \
@@ -92,3 +112,28 @@ jobs:
             -var="region=${{ env.REGION }}" \
             -var="artifact_registry_repository=${{ env.REPOSITORY }}" \
             -var="image_tag=${{ github.sha }}"
+          
+          echo "service_url=$(terraform output -raw service_url)" >> $GITHUB_OUTPUT
+
+  verify:
+    name: Post-Deployment Verification
+    needs: deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health Check
+        run: |
+          SERVICE_URL="${{ needs.deploy.outputs.service_url }}"
+          echo "Verifying service at $SERVICE_URL"
+          for i in {1..5}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/health")
+            if [ "$STATUS" -eq 200 ]; then
+              echo "Service is healthy!"
+              curl -s "$SERVICE_URL/health" | jq .
+              exit 0
+            fi
+            echo "Waiting for service to be ready (attempt $i)..."
+            sleep 10
+          done
+          echo "Service failed health check after 5 attempts"
+          exit 1
