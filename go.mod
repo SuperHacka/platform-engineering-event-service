@@ -1,3 +1,3 @@
 module event-service
 
-go 1.22
+go 1.21.5

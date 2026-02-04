@@ -58,6 +58,32 @@ The dashboard provides:
 
 Simply open the URL in your browser to visualize and interact with the event service.
 
+## Deployment Status
+
+The service is currently deployed to **Google Cloud Run** using Terraform.
+
+- **Live URL**: [https://event-service-bkwwptnmgq-uc.a.run.app/](https://event-service-bkwwptnmgq-uc.a.run.app/)
+- **Health Endpoint**: [https://event-service-bkwwptnmgq-uc.a.run.app/health](https://event-service-bkwwptnmgq-uc.a.run.app/health)
+
+### Verification Commands
+
+**1. Check Health (GCP):**
+```bash
+curl https://event-service-bkwwptnmgq-uc.a.run.app/health
+```
+
+**2. Submit Event (GCP):**
+```bash
+curl -X POST https://event-service-bkwwptnmgq-uc.a.run.app/events \
+  -H "Content-Type: application/json" \
+  -d '{"event_id": "evt_gcp_001", "payload": {"status": "deployed_to_cloud"}}'
+```
+
+**3. List Events (GCP):**
+```bash
+curl https://event-service-bkwwptnmgq-uc.a.run.app/events
+```
+
 ## API Endpoints
 
 ### GET /
